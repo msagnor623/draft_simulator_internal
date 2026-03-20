@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 Fantasy Baseball Draft Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #555; }
+        .draft-active { border-left: 4px solid #3b82f6; background-color: #eff6ff; }
+        .player-row:hover { background-color: #f3f4f6; cursor: pointer; }
+        .keeper-badge { background-color: #fef3c7; color: #92400e; font-size: 0.65rem; padding: 1px 4px; border-radius: 4px; font-weight: bold; margin-left: 4px; }
+        
+        .panel-1-height { height: 25vh; }
+        .panel-2-height { height: 60vh; }
+        @media (min-width: 1024px) {
+            .panel-1-height, .panel-2-height { height: calc(100vh - 120px); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+    <div id="app" class="max-[1600px] mx-auto p-4 lg:p-6">
+        <!-- Landing / Team Selection -->
+        <div id="setup-view" class="bg-white rounded-xl shadow-lg p-6 lg:p-8 text-center max-w-2xl mx-auto mt-10">
+            <h1 class="text-2xl lg:text-3xl font-bold mb-4 text-blue-700">2026 Fantasy Baseball Draft Simulator</h1>
+            <p class="text-slate-600 mb-4">Select your team to begin the simulation.</p>
+            <p class="text-xs text-slate-400 mb-8 italic">Keepers from keepers.csv will be automatically assigned during the draft.</p>
+            
+            <div class="max-w-md mx-auto mb-8">
+                <label class="block text-left text-sm font-semibold mb-2">Choose Your Team</label>
+                <select id="team-select" class="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    <!-- Teams will be populated here -->
+                </select>
+            </div>
+
+            <button onclick="startDraft()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-10 rounded-full transition-all transform hover:scale-105">
+                Start Draft
+            </button>
+        </div>
+
+        <!-- Draft View -->
+        <div id="draft-view" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+            
+            <!-- Panel 1: Draft Board -->
+            <div class="lg:col-span-6 bg-white rounded-xl shadow p-4 flex flex-col panel-1-height">
+                <h2 class="text-lg font-bold mb-3 border-b pb-2 flex justify-between items-center">
+                    <span>Draft Order</span>
+                    <span id="current-round-text" class="text-xs font-normal text-slate-500"></span>
+                </h2>
+                <div id="draft-order-list" class="flex-grow overflow-y-auto custom-scrollbar space-y-1 pr-2 scroll-smooth">
+                    <!-- Draft picks list -->
+                </div>
+            </div>
+
+            <!-- Panel 2: Toggled Content -->
+            <div class="lg:col-span-6 bg-white rounded-xl shadow p-4 flex flex-col panel-2-height">
+                <!-- Toggle Header -->
+                <div class="flex items-center justify-between mb-4 border-b">
+                    <div class="flex space-x-4 items-center">
+                        <button id="btn-players" onclick="switchPanel('players')" class="pb-2 px-1 font-bold text-blue-600 border-b-2 border-blue-600 transition-all">Available Players</button>
+                        <div class="flex items-center gap-2">
+                            <button id="btn-roster" onclick="switchPanel('roster')" class="pb-2 px-1 font-bold text-slate-400 border-b-2 border-transparent transition-all">My Roster</button>
+                            <span id="draft-progress-indicator" class="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full font-mono mb-2 hidden lg:inline-block">Pick 0/0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Available Players View -->
+                <div id="panel-players" class="flex flex-col flex-grow overflow-hidden relative">
+                    <div class="flex flex-wrap gap-2 mb-3 items-center">
+                        <input type="text" id="player-search" placeholder="Search..." class="flex-grow min-w-[120px] p-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        
+                        <!-- Position Filter -->
+                        <select id="position-filter" onchange="renderPlayers()" class="p-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                            <option value="">All Pos</option>
+                            <option value="C">C</option>
+                            <option value="1B">1B</option>
+                            <option value="2B">2B</option>
+                            <option value="3B">3B</option>
+                            <option value="SS">SS</option>
+                            <option value="OF">OF</option>
+                            <option value="DH">DH</option>
+                            <option value="SP">SP</option>
+                            <option value="RP">RP</option>
+                        </select>
+
+                        <!-- Stat Sort Dropdown -->
+                        <select id="stat-sort" onchange="handleSortChange()" class="p-2 border border-slate-300 rounded-md text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50">
+                            <option value="default|Rank|Rank">Sort: Rank</option>
+                            <optgroup label="Batting" id="batting-sort-group"></optgroup>
+                            <optgroup label="Pitching" id="pitching-sort-group"></optgroup>
+                        </select>
+                    </div>
+
+                    <div class="overflow-hidden border rounded-lg flex-grow flex flex-col">
+                        <div class="bg-slate-100 grid grid-cols-12 text-[10px] lg:text-xs font-bold uppercase p-2 border-b">
+                            <div class="col-span-1">Rk</div>
+                            <div class="col-span-6">Player</div>
+                            <div class="col-span-2">Pos</div>
+                            <div class="col-span-3 text-right">Draft</div>
+                        </div>
+                        <div id="player-list" class="overflow-y-auto custom-scrollbar flex-grow">
+                            <!-- Player list rows -->
+                        </div>
+                    </div>
+                    <div id="user-turn-alert" class="mt-3 p-2 bg-blue-100 text-blue-800 rounded-lg font-bold text-xs text-center animate-pulse hidden">
+                        YOUR TURN TO PICK!
+                    </div>
+                </div>
+
+                <!-- My Roster View -->
+                <div id="panel-roster" class="hidden flex flex-col flex-grow overflow-y-auto custom-scrollbar pr-1">
+                    <div id="user-roster-list" class="text-sm space-y-1">
+                        <!-- Roster slots -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results View -->
+        <div id="results-view" class="hidden bg-white rounded-xl shadow-lg p-6 lg:p-8">
+            <h1 class="text-2xl lg:text-3xl font-bold mb-6 text-blue-700 text-center">Draft Results</h1>
+            
+            <div class="flex border-b mb-6 overflow-x-auto">
+                <button onclick="showFullResults()" id="tab-full" class="whitespace-nowrap px-4 lg:px-6 py-2 font-bold border-b-2 border-blue-600 text-blue-600">Full Draft Log</button>
+                <button onclick="showUserResults()" id="tab-user" class="whitespace-nowrap px-4 lg:px-6 py-2 font-bold text-slate-500">Your Team (Log)</button>
+                <button onclick="showUserRosterResult()" id="tab-roster-result" class="whitespace-nowrap px-4 lg:px-6 py-2 font-bold text-slate-500">My Roster</button>
+            </div>
+
+            <div id="results-content" class="max-h-[50vh] overflow-y-auto custom-scrollbar border rounded-lg">
+                <!-- Results tables -->
+            </div>
+
+            <div class="mt-8 text-center">
+                <button onclick="location.reload()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-10 rounded-full transition-all">
+                    Draft Again
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Logic -->
+    <script>
+        // Data Storage
+        let allPlayersData = [];
+        let players = []; // Available players
+        let draftPicks = [];
+        let rosterSlots = [];
+        let draftedPlayers = []; // Full history
+        let keepers = [];
+        let userTeam = "";
+        let currentPickIndex = 0;
+        let isUserTurn = false;
+        let rosters = {}; // { teamName: [ {slot: 'C', player: null} ] }
+        let currentPanel = 'players';
+
+        // Stats Logic
+        let statColumns = {};
+        let currentSort = { type: 'default', key: 'Rank', direction: 'asc', label: 'Rank' };
+
+        // CSV Parser Helper
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            if (lines.length < 1) return [];
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            return lines.slice(1).map(line => {
+                if (!line.trim()) return null;
+                const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^\"$]*$)/).map(v => v.trim().replace(/^"|"$/g, ''));
+                const obj = {};
+                headers.forEach((h, i) => obj[h] = values[i]);
+                return obj;
+            }).filter(row => row !== null);
+        }
+
+        // Initialize App
+        async function init() {
+            try {
+                // Fetch Draft Order
+                const picksRes = await fetch('2026_draft_picks.csv');
+                const picksText = await picksRes.text();
+                draftPicks = parseCSV(picksText);
+
+                // Fetch Stats Config
+                const statsConfigRes = await fetch('stats_columns.json');
+                statColumns = await statsConfigRes.json();
+                populateSortOptions();
+
+                // Fetch Keepers
+                const keepersRes = await fetch('keepers.csv');
+                const keepersText = await keepersRes.text();
+                keepers = parseCSV(keepersText).map(k => ({
+                    ...k,
+                    round: parseInt(k.round)
+                }));
+
+                // Populate Team Selection
+                const teams = [...new Set(draftPicks.map(p => p.Team))].sort();
+                const teamSelect = document.getElementById('team-select');
+                teams.forEach(team => {
+                    const opt = document.createElement('option');
+                    opt.value = team;
+                    opt.textContent = team;
+                    teamSelect.appendChild(opt);
+                });
+
+                // Fetch ADP with Stats
+                const adpRes = await fetch('adp_with_stats.csv');
+                const adpText = await adpRes.text();
+                allPlayersData = parseCSV(adpText).map(p => {
+                    const row = {
+                        ...p,
+                        Rank: parseInt(p.Rank) || 999,
+                        AVG: parseFloat(p.AVG) || 999
+                    };
+                    // Convert stats to numbers
+                    for(let i=1; i<=9; i++) {
+                        const key = `stat_${i}`;
+                        if(p[key]) row[key] = parseFloat(p[key]);
+                    }
+                    return row;
+                }).sort((a, b) => a.Rank - b.Rank);
+
+                // Filter out kept players
+                players = allPlayersData.filter(p => {
+                    if (!p || !p.Player) return true;
+                    const pName = p.Player.toLowerCase().trim();
+                    return !keepers.some(k => {
+                        if (!k || !k.player) return false;
+                        const kName = k.player.toLowerCase().trim();
+                        return kName === pName || pName.includes(kName) || kName.includes(pName);
+                    });
+                });
+
+                // Fetch Positions
+                const posRes = await fetch('positions.txt');
+                const posText = await posRes.text();
+                rosterSlots = posText.split(',').map(p => p.trim());
+
+                // Initialize Rosters
+                teams.forEach(team => {
+                    rosters[team] = rosterSlots.map(slot => ({ slot, player: null, displayLabel: null }));
+                });
+
+                // Keeper Assignment
+                keepers.forEach(k => {
+                    if (!k || !k.player || !k.Team) return;
+                    const pick = draftPicks.find(p => p.Team === k.Team && parseInt(p.Round) === k.round);
+                    if (pick) {
+                        const kName = k.player.toLowerCase().trim();
+                        const fullPlayer = allPlayersData.find(ap => {
+                            if (!ap || !ap.Player) return false;
+                            const apName = ap.Player.toLowerCase().trim();
+                            return apName.includes(kName) || kName.includes(apName);
+                        }) || { Player: k.player, Positions: "N/A", Rank: 999 };
+                        pick.isKeeper = true;
+                        pick.keeperPlayer = fullPlayer;
+                    }
+                });
+
+            } catch (err) {
+                console.error("Error loading data:", err);
+            }
+        }
+
+        // Sorting Logic Updated to use Dropdown
+        function populateSortOptions() {
+            const battingGroup = document.getElementById('batting-sort-group');
+            const pitchingGroup = document.getElementById('pitching-sort-group');
+
+            Object.entries(statColumns.batting_columns).forEach(([key, label]) => {
+                const opt = document.createElement('option');
+                opt.value = `batting|${key}|${label}`;
+                opt.textContent = label.toUpperCase();
+                battingGroup.appendChild(opt);
+            });
+
+            Object.entries(statColumns.pitching_columns).forEach(([key, label]) => {
+                const opt = document.createElement('option');
+                opt.value = `pitching|${key}|${label}`;
+                opt.textContent = label.toUpperCase();
+                pitchingGroup.appendChild(opt);
+            });
+        }
+
+        function handleSortChange() {
+            const select = document.getElementById('stat-sort');
+            const [type, key, label] = select.value.split('|');
+            
+            // Stats like ERA and WHIP are better when lower
+            const direction = (label === 'era' || label === 'whip' || label === 'k9w_rank' || label === 'hrt_rank' || key === 'Rank') ? 'asc' : 'desc';
+            
+            currentSort = { type, key, direction, label: label.toUpperCase() };
+            renderPlayers();
+        }
+
+        function switchPanel(panel) {
+            currentPanel = panel;
+            const playersEl = document.getElementById('panel-players');
+            const rosterEl = document.getElementById('panel-roster');
+            const btnPlayers = document.getElementById('btn-players');
+            const btnRoster = document.getElementById('btn-roster');
+            if (panel === 'players') {
+                playersEl.classList.remove('hidden');
+                rosterEl.classList.add('hidden');
+                btnPlayers.className = "pb-2 px-1 font-bold text-blue-600 border-b-2 border-blue-600 transition-all";
+                btnRoster.className = "pb-2 px-1 font-bold text-slate-400 border-b-2 border-transparent transition-all";
+            } else {
+                playersEl.classList.add('hidden');
+                rosterEl.classList.remove('hidden');
+                btnRoster.className = "pb-2 px-1 font-bold text-blue-600 border-b-2 border-blue-600 transition-all";
+                btnPlayers.className = "pb-2 px-1 font-bold text-slate-400 border-b-2 border-transparent transition-all";
+            }
+        }
+
+        function startDraft() {
+            const select = document.getElementById('team-select');
+            if (!select.value) return;
+            userTeam = select.value;
+            document.getElementById('setup-view').classList.add('hidden');
+            document.getElementById('draft-view').classList.remove('hidden');
+            document.getElementById('draft-progress-indicator').classList.remove('hidden');
+            renderDraftOrder();
+            renderPlayers();
+            renderUserRoster();
+            processNextPick();
+        }
+
+        function renderPlayers() {
+            const filterText = document.getElementById('player-search').value.toLowerCase();
+            const posFilter = document.getElementById('position-filter').value;
+            const list = document.getElementById('player-list');
+            list.innerHTML = '';
+
+            // Filter logic
+            let available = players.filter(p => {
+                if (!p || !p.Player) return false;
+                if (draftedPlayers.some(dp => dp.Player === p.Player)) return false;
+                
+                // Stat type filtering (If sorting by HR, don't show SP)
+                if (currentSort.type === 'batting' && p.stat_type !== 'batting') return false;
+                if (currentSort.type === 'pitching' && p.stat_type !== 'pitching') return false;
+
+                const name = (p.Player || "").toLowerCase();
+                const pPos = (p.Positions || "");
+                const pPosList = pPos.split(',').map(s => s.trim());
+                
+                // Text Search
+                if (!name.includes(filterText) && !pPos.toLowerCase().includes(filterText)) return false;
+
+                // Position Dropdown
+                if (posFilter) {
+                    if (posFilter === 'OF') {
+                        if (!pPosList.some(pos => ['LF', 'CF', 'RF', 'OF'].includes(pos))) return false;
+                    } else if (posFilter === 'P') {
+                        if (!pPosList.some(pos => ['SP', 'RP', 'P'].includes(pos))) return false;
+                    } else {
+                        if (!pPosList.includes(posFilter)) return false;
+                    }
+                }
+
+                return true;
+            });
+
+            // Sorting logic
+            available.sort((a, b) => {
+                let valA = a[currentSort.key];
+                let valB = b[currentSort.key];
+
+                if (valA === undefined) valA = currentSort.direction === 'asc' ? 99999 : -1;
+                if (valB === undefined) valB = currentSort.direction === 'asc' ? 99999 : -1;
+
+                if (currentSort.direction === 'asc') return valA - valB;
+                return valB - valA;
+            });
+
+            available.slice(0, 100).forEach(p => {
+                const div = document.createElement('div');
+                div.className = "player-row border-b transition-colors p-2 lg:p-3";
+                
+                const currentCols = p.stat_type === 'batting' ? statColumns.batting_columns : statColumns.pitching_columns;
+                let statsHtml = '';
+                Object.entries(currentCols).forEach(([key, label]) => {
+                    const val = p[key] !== undefined ? p[key] : '-';
+                    const isSorted = currentSort.key === key;
+                    statsHtml += `
+                        <div class="flex flex-col items-center flex-1 border-r last:border-0 border-slate-100 ${isSorted ? 'bg-blue-50' : ''}">
+                            <span class="text-[8px] text-slate-400 font-bold uppercase">${label}</span>
+                            <span class="text-[9px] font-bold ${isSorted ? 'text-blue-700' : 'text-slate-700'}">${val}</span>
+                        </div>
+                    `;
+                });
+
+                div.innerHTML = `
+                    <div class="grid grid-cols-12 items-center mb-1">
+                        <div class="col-span-1 text-[10px] text-slate-400 font-mono">${p.Rank}</div>
+                        <div class="col-span-6 font-bold text-xs lg:text-sm leading-tight">
+                            ${p.Player}
+                            <span class="block text-[10px] font-normal text-slate-400">${p.Team || ''}</span>
+                        </div>
+                        <div class="col-span-2 text-[10px] text-slate-500 font-bold">${p.Positions || 'N/A'}</div>
+                        <div class="col-span-3 text-right">
+                            <button onclick="userDraftPlayer('${p.Player.replace(/'/g, "\\'")}')" 
+                                    class="bg-blue-600 text-white text-[10px] px-3 py-1.5 rounded-md hover:bg-blue-700 ${!isUserTurn ? 'opacity-30 cursor-not-allowed' : ''}"
+                                    ${!isUserTurn ? 'disabled' : ''}>
+                                Draft
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex bg-slate-50 border border-slate-100 rounded p-1 mt-1 overflow-x-auto">
+                        ${statsHtml}
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function renderDraftOrder() {
+            const list = document.getElementById('draft-order-list');
+            list.innerHTML = '';
+            for (let i = 0; i < draftPicks.length; i++) {
+                const pick = draftPicks[i];
+                if (!pick) continue;
+                const div = document.createElement('div');
+                const isActive = i === currentPickIndex;
+                div.className = `p-2 rounded text-xs lg:text-sm flex items-center justify-between transition-all ${isActive ? 'draft-active shadow-sm font-bold scale-[1.02] active-pick-element' : 'opacity-60'}`;
+                if (isActive) div.id = 'active-pick';
+                const playerDrafted = draftedPlayers.find(p => p.pickIndex === i);
+                let playerDisplay = "";
+                if (playerDrafted) {
+                    playerDisplay = playerDrafted.Player;
+                } else if (pick.isKeeper) {
+                    playerDisplay = `<span class="text-slate-400 italic">${pick.keeperPlayer?.Player || 'Unknown'}</span><span class="keeper-badge">KEEPER</span>`;
+                }
+                div.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="text-slate-400 w-8 font-mono">${pick.Pick}</span>
+                        <span class="${pick.Team === userTeam ? 'text-blue-600 font-bold' : ''}">${pick.Team}</span>
+                    </div>
+                    <span class="text-[10px] lg:text-xs text-slate-500 font-medium text-right ml-2">${playerDisplay}</span>
+                `;
+                list.appendChild(div);
+            }
+            setTimeout(() => {
+                const activeEl = document.getElementById('active-pick');
+                if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+
+            if (userTeam) {
+                const userPicksCount = draftedPlayers.filter(p => p.teamName === userTeam).length;
+                const indicator = document.getElementById('draft-progress-indicator');
+                indicator.textContent = `Pick ${userPicksCount}/${rosterSlots.length}`;
+            }
+
+            if (currentPickIndex < draftPicks.length && draftPicks[currentPickIndex]) {
+                document.getElementById('current-round-text').textContent = `Round ${draftPicks[currentPickIndex].Round}`;
+            }
+        }
+
+        function renderUserRoster() {
+            const list = document.getElementById('user-roster-list');
+            list.innerHTML = '';
+            const userRoster = rosters[userTeam];
+            if (!userRoster) return;
+            userRoster.forEach(slot => {
+                const div = document.createElement('div');
+                div.className = "flex justify-between p-2 border-b border-slate-50 bg-slate-50 rounded mb-1";
+                div.innerHTML = `
+                    <span class="font-bold text-slate-400 w-10 uppercase">${slot.displayLabel || slot.slot}</span>
+                    <span class="flex-grow text-right ${slot.player ? 'text-blue-700 font-medium' : 'text-slate-300 italic'}">
+                        ${slot.player ? slot.player.Player : 'Empty'}
+                        ${slot.isKeeper ? '<span class="keeper-badge">K</span>' : ''}
+                    </span>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        async function processNextPick() {
+            if (currentPickIndex >= draftPicks.length) { finishDraft(); return; }
+            const currentPick = draftPicks[currentPickIndex];
+            if (currentPick.isKeeper) {
+                await new Promise(r => setTimeout(r, 200)); 
+                draftPlayer(currentPick.keeperPlayer, currentPick.Team, true);
+                currentPickIndex++;
+                renderDraftOrder(); renderUserRoster(); processNextPick();
+                return;
+            }
+            if (currentPick.Team === userTeam) {
+                isUserTurn = true;
+                document.getElementById('user-turn-alert').classList.remove('hidden');
+                renderPlayers();
+                if (currentPanel !== 'players') switchPanel('players');
+                return;
+            }
+            isUserTurn = false;
+            document.getElementById('user-turn-alert').classList.add('hidden');
+            await new Promise(r => setTimeout(r, 300)); 
+            simulateAiPick(currentPick.Team);
+            currentPickIndex++;
+            renderDraftOrder(); renderUserRoster(); processNextPick();
+        }
+
+        function simulateAiPick(teamName) {
+            const pickNum = parseInt(draftPicks[currentPickIndex].Pick);
+            const deviation = Math.floor(pickNum * 0.25) + 2; 
+            const available = players.filter(p => p && p.Player && !draftedPlayers.some(dp => dp.Player === p.Player));
+            if (available.length === 0) return;
+            const teamRoster = rosters[teamName];
+            const emptySlots = teamRoster.filter(s => s.player === null);
+            const randomIndex = Math.floor(Math.random() * Math.min(deviation, available.length));
+            let selectedPlayer = available[randomIndex];
+            if (pickNum > 40) {
+                const priorityOrder = ['Util', '2B', '3B', 'SS', '1B', 'C', 'OF', 'SP', 'P', 'RP'];
+                let targetSlot = null;
+                for (const posName of priorityOrder) {
+                    if (emptySlots.some(s => s.slot === posName)) { targetSlot = posName; break; }
+                }
+                if (targetSlot) {
+                    const searchWindow = available.slice(0, Math.min(deviation * 2, available.length));
+                    const specialized = searchWindow.find(p => {
+                        const pPos = p.Positions || "";
+                        const pPosList = pPos.split(',').map(s => s.trim());
+                        if (targetSlot === 'Util') return pPosList.some(pos => !['SP', 'RP', 'P'].includes(pos)) || pPos.includes('DH');
+                        if (targetSlot === 'OF') return pPosList.some(pos => ['LF', 'CF', 'RF', 'OF'].includes(pos));
+                        if (targetSlot === 'P') return pPosList.some(pos => ['SP', 'RP', 'P'].includes(pos));
+                        return pPosList.includes(targetSlot);
+                    });
+                    if (specialized) selectedPlayer = specialized;
+                }
+            }
+            draftPlayer(selectedPlayer, teamName);
+        }
+
+        function draftPlayer(player, teamName, isKeeper = false) {
+            if (!player) return;
+            const roster = rosters[teamName];
+            const posString = player.Positions || "";
+            const posList = posString.split(',').map(s => s.trim());
+            let searchPositions = [...posList];
+            if (posList.some(p => ['LF', 'CF', 'RF'].includes(p))) searchPositions.push('OF');
+            const isPitcher = posList.some(p => ['SP', 'RP', 'P'].includes(p));
+            const isBatter = posList.some(p => !['SP', 'RP', 'P'].includes(p)) || posString.includes('DH');
+            let assignedSlot = null;
+            const findSlot = (types) => {
+                for (let type of types) {
+                    let slot = roster.find(s => !s.player && s.slot === type);
+                    if (slot) return slot;
+                }
+                return null;
+            };
+            assignedSlot = findSlot(searchPositions);
+            if (!assignedSlot) {
+                if (isBatter) assignedSlot = findSlot(['Util']);
+                else if (isPitcher) assignedSlot = findSlot(['P']);
+            }
+            if (!assignedSlot && isPitcher) assignedSlot = findSlot(['P']);
+            if (!assignedSlot) assignedSlot = findSlot(['BN']);
+            if (!assignedSlot) {
+                assignedSlot = roster.find(s => {
+                    if (s.player) return false;
+                    if (s.slot === 'Util' && isPitcher && !isBatter) return false;
+                    return true;
+                });
+                if (assignedSlot && !['Util', 'P', 'BN'].includes(assignedSlot.slot) && !posList.includes(assignedSlot.slot)) {
+                    const isOFPlayer = posList.some(p => ['LF', 'CF', 'RF', 'OF'].includes(p));
+                    if (!(isOFPlayer && assignedSlot.slot === 'OF')) assignedSlot.displayLabel = "BN";
+                }
+            }
+            if (assignedSlot) {
+                assignedSlot.player = player;
+                assignedSlot.isKeeper = isKeeper;
+                if (!assignedSlot.displayLabel) assignedSlot.displayLabel = assignedSlot.slot;
+            }
+            draftedPlayers.push({
+                ...player,
+                teamName,
+                pickIndex: currentPickIndex,
+                round: draftPicks[currentPickIndex].Round,
+                pick: draftPicks[currentPickIndex].Pick,
+                isKeeper: isKeeper
+            });
+        }
+
+        function userDraftPlayer(playerName) {
+            if (!isUserTurn) return;
+            const player = players.find(p => p.Player === playerName);
+            if (!player) return;
+            draftPlayer(player, userTeam);
+            currentPickIndex++;
+            isUserTurn = false;
+            document.getElementById('user-turn-alert').classList.add('hidden');
+            renderDraftOrder(); renderUserRoster(); renderPlayers();
+            processNextPick();
+        }
+
+        function finishDraft() {
+            document.getElementById('draft-view').classList.add('hidden');
+            document.getElementById('results-view').classList.remove('hidden');
+            showFullResults();
+        }
+
+        function showFullResults() {
+            document.getElementById('tab-full').className = "whitespace-nowrap px-4 lg:px-6 py-2 font-bold border-b-2 border-blue-600 text-blue-600";
+            document.getElementById('tab-user').className = "whitespace-nowrap px-4 lg:px-6 py-2 font-bold text-slate-500";
+            document.getElementById('tab-roster-result').className = "whitespace-nowrap px-4 lg:px-6 py-2 font-bold text-slate-500";
+            let html = `<table class="w-full text-left text-xs lg:text-sm">
+                <thead class="bg-slate-50 sticky top-0">
+                    <tr><th class="p-3 border-b">Pick</th><th class="p-3 border-b">Team</th><th class="p-3 border-b">Player</th><th class="p-3 border-b">Pos</th><th class="p-3 border-b text-center">ADP</th><th class="p-3 border-b text-right">Variance</th></tr>
+                </thead><tbody>`;
+            draftedPlayers.forEach(p => {
+                const variance = parseInt(p.pick) - parseInt(p.Rank);
+                let varianceText = variance > 0 ? `+${variance}` : variance;
+                let varianceClass = variance > 0 ? "text-green-600 font-bold" : (variance < 0 ? "text-red-600 font-bold" : "text-slate-400");
+                html += `<tr class="hover:bg-slate-50">
+                    <td class="p-3 border-b font-mono">${p.pick}</td>
+                    <td class="p-3 border-b ${p.teamName === userTeam ? 'font-bold text-blue-600' : ''}">${p.teamName}</td>
+                    <td class="p-3 border-b font-semibold">${p.Player || 'Unknown'}</td>
+                    <td class="p-3 border-b">${p.Positions || ''}</td>
+                    <td class="p-3 border-b text-center text-slate-400">${p.Rank}</td>
+                    <td class="p-3 border-b text-right ${varianceClass}">${p.isKeeper ? '<span class="text-[10px] uppercase text-slate-300 mr-2">K</span>' : ''}${varianceText}</td>
+                </tr>`;
+            });
+            html += `</tbody></table>`;
+            document.getElementById('results-content').innerHTML = html;
+        }
+
+        function showUserResults() {
+            document.getElementById('tab-user').className = "whitespace-nowrap px-4 lg:px-6 py-2 font-bold border-b-2 border-blue-600 text-blue-600";
+            document.getElementById('tab-full').className = "whitespace-nowrap px-4 lg:px-6 py-2 font-bold text-slate-500";
+            document.getElementById('tab-roster-result').className = "whitespace-nowrap px-4 lg:px-6 py-2 font-bold text-slate-500";
+            const userPicks = draftedPlayers.filter(p => p.teamName === userTeam);
+            let html = `<table class="w-full text-left text-xs lg:text-sm">
+                <thead class="bg-slate-50 sticky top-0">
+                    <tr><th class="p-3 border-b">Round</th><th class="p-3 border-b">Overall</th><th class="p-3 border-b">Player</th><th class="p-3 border-b">Pos</th><th class="p-3 border-b text-center">ADP</th><th class="p-3 border-b text-right">Variance</th></tr>
+                </thead><tbody>`;
+            userPicks.forEach(p => {
+                const variance = parseInt(p.pick) - parseInt(p.Rank);
+                let varianceText = variance > 0 ? `+${variance}` : variance;
+                let varianceClass = variance > 0 ? "text-green-600 font-bold" : (variance < 0 ? "text-red-600 font-bold" : "text-slate-400");
+                html += `<tr class="hover:bg-slate-50">
+                    <td class="p-3 border-b">${p.round}</td>
+                    <td class="p-3 border-b font-mono">${p.pick}</td>
+                    <td class="p-3 border-b font-semibold text-blue-700">${p.Player || 'Unknown'} ${p.isKeeper ? '<span class="keeper-badge">K</span>' : ''}</td>
+                    <td class="p-3 border-b">${p.Positions || ''}</td>
+                    <td class="p-3 border-b text-center text-slate-400">${p.Rank}</td>
+                    <td class="p-3 border-b text-right ${varianceClass}">${varianceText}</td>
+                </tr>`;
+            });
+            html += `</tbody></table>`;
+            document.getElementById('results-content').innerHTML = html;
+        }
+
+        function showUserRosterResult() {
+            document.getElementById('tab-roster-result').className = "whitespace-nowrap px-4 lg:px-6 py-2 font-bold border-b-2 border-blue-600 text-blue-600";
+            document.getElementById('tab-full').className = "whitespace-nowrap px-4 lg:px-6 py-2 font-bold text-slate-500";
+            document.getElementById('tab-user').className = "whitespace-nowrap px-4 lg:px-6 py-2 font-bold text-slate-500";
+            const userRoster = rosters[userTeam];
+            let html = `<table class="w-full text-left text-xs lg:text-sm">
+                <thead class="bg-slate-50 sticky top-0">
+                    <tr><th class="p-3 border-b">Slot</th><th class="p-3 border-b">Player</th><th class="p-3 border-b">Positions</th><th class="p-3 border-b text-right">Pick #</th></tr>
+                </thead><tbody>`;
+            userRoster.forEach(slot => {
+                const player = slot.player;
+                const pickInfo = player ? draftedPlayers.find(dp => dp.Player === player.Player && dp.teamName === userTeam) : null;
+                html += `<tr class="hover:bg-slate-50">
+                    <td class="p-3 border-b font-bold text-slate-500 uppercase">${slot.displayLabel || slot.slot}</td>
+                    <td class="p-3 border-b font-semibold ${player ? 'text-blue-700' : 'text-slate-300 italic'}">${player ? player.Player : 'Empty'} ${slot.isKeeper ? '<span class="keeper-badge">K</span>' : ''}</td>
+                    <td class="p-3 border-b text-slate-400">${player ? player.Positions : ''}</td>
+                    <td class="p-3 border-b text-right font-mono text-slate-400">${pickInfo ? pickInfo.pick : ''}</td>
+                </tr>`;
+            });
+            html += `</tbody></table>`;
+            document.getElementById('results-content').innerHTML = html;
+        }
+
+        document.getElementById('player-search').addEventListener('input', () => renderPlayers());
+        window.onload = init;
+    </script>
+</body>
+</html>

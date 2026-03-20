@@ -1,0 +1,2 @@
+{"pitching_columns": {"stat_1":"ip", "stat_2":"era", "stat_3":"whip", "stat_4":"k_bb", "stat_5":"k_9","stat_6":"w", "stat_7":"qs", "stat_8":"sv_h", "stat_9":"k9w_rank"},
+"batting_columns": {"stat_1":"ab","stat_2":"runs","stat_3":"hr","stat_4":"tb","stat_5":"rbi","stat_6":"avg","stat_7":"obp","stat_8":"sb","stat_9":"hrt_rank"}}
