@@ -508,7 +508,7 @@
 
         function simulateAiPick(teamName) {
             const pickNum = parseInt(draftPicks[currentPickIndex].Pick);
-            const deviation = Math.floor(pickNum * 0.25) + 2; 
+            const deviation = Math.floor(pickNum * 0.10) + 2; 
             const available = players.filter(p => p && p.Player && !draftedPlayers.some(dp => dp.Player === p.Player));
             if (available.length === 0) return;
             const teamRoster = rosters[teamName];
